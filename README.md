@@ -6,6 +6,11 @@ Task: create a better pipeline for distilling TabPFN into a decision tree of dec
 Consider adding additional features.
 
 
+# Datasets
+- [Blood Datasets](https://www.kaggle.com/datasets/mahmudulhaqueshawon/blood-dataset)
+- [Banking Datasets](https://www.kaggle.com/datasets/prakharrathi25/banking-dataset-marketing-targets)
+- [California Housing Dataset](https://www.kaggle.com/datasets/camnugent/california-housing-prices)
+
 # References
 
 - [TabPFN Implementation by PriorLabs](https://github.com/PriorLabs/TabPFN)
