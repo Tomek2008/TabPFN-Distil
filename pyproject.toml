@@ -4,4 +4,16 @@ version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "datasets>=5.0.0",
+    "ipykernel>=7.3.0",
+    "matplotlib>=3.11.0",
+    "numpy>=2.4.6",
+    "pandas>=3.0.3",
+    "scikit-learn>=1.9.0",
+    "tabpfn>=8.0.8",
+    "tabpfn-extensions>=0.4.2",
+    "torch>=2.12.0",
+    "tqdm>=4.68.3",
+    "transformers>=5.12.1",
+]
