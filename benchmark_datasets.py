@@ -1,6 +1,6 @@
 """Curated suite of small, non-linear OpenML datasets for evaluating TabPFN and its distillations.
 
-The suite contains 20 datasets (10 classification + 10 regression), every one with <= 1000 rows and
+The suite contains 60 datasets (50 classification + 10 regression), every one with <= 1000 rows and
 known non-linear structure (XOR / multiplicative interactions, multi-class geometry, signal / physics
 data). This is exactly TabPFN's regime, and it is where a strong teacher / student pulls clearly ahead
 of a linear baseline -- so distillation gains are easy to see.
@@ -9,7 +9,8 @@ Everything is fetched through ``sklearn.datasets.fetch_openml(data_id=...)`` (no
 built-in on-disk caching). ``OpenMLBenchmark`` loads any dataset into model-ready ``np.float32`` arrays
 and runs a repeated train/test-split evaluation, reusing the project's conventions
 (``StratifiedShuffleSplit`` / ``ShuffleSplit`` with ``random_state=0``, ``StandardScaler`` for students,
-``accuracy_score`` for classification and ``r2_score`` / RMSE for regression).
+accuracy and ROC AUC for classification and ``r2_score`` / RMSE for regression). ROC AUC is the metric
+where TabPFN's edge over tree baselines is clearest; plain accuracy thresholds away that advantage.
 
 Example
 -------
@@ -29,10 +30,11 @@ from typing import Callable, Literal
 
 import numpy as np
 import pandas as pd
+from pandas.api.types import is_bool_dtype, is_numeric_dtype
 from sklearn.compose import ColumnTransformer
 from sklearn.datasets import fetch_openml
 from sklearn.impute import SimpleImputer
-from sklearn.metrics import accuracy_score, mean_squared_error, r2_score
+from sklearn.metrics import accuracy_score, mean_squared_error, r2_score, roc_auc_score
 from sklearn.model_selection import ShuffleSplit, StratifiedShuffleSplit
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import LabelEncoder, OneHotEncoder, StandardScaler
@@ -40,6 +42,55 @@ from sklearn.preprocessing import LabelEncoder, OneHotEncoder, StandardScaler
 Task = Literal["classification", "regression"]
 
 RANDOM_STATE = 0
+
+
+def _to_class_labels(pred: np.ndarray, classes: np.ndarray) -> np.ndarray:
+    """Snap predictions to valid class labels.
+
+    True classifiers already return labels in ``classes`` and pass through unchanged. Distillation
+    students that regress onto soft targets (e.g. an ``MLPRegressor`` trained on ``predict_proba``)
+    return continuous values, which are mapped to the nearest class label -- the generalisation of the
+    notebook's ``predict(...) > 0.5``.
+    """
+    pred = np.asarray(pred)
+    classes = np.asarray(classes)
+    if np.issubdtype(pred.dtype, np.floating) and not np.all(np.isin(pred, classes)):
+        nearest = np.abs(pred.reshape(-1, 1) - classes.reshape(1, -1)).argmin(axis=1)
+        return classes[nearest]
+    return pred
+
+
+def _class_scores(model: object, X: np.ndarray) -> np.ndarray:
+    """Return soft scores for ROC AUC: ``predict_proba`` > ``decision_function`` > raw ``predict``.
+
+    The raw-``predict`` fallback is exactly what a distillation regressor outputs (its predicted
+    probability), so AUC is well defined for those students too.
+    """
+    if hasattr(model, "predict_proba"):
+        return np.asarray(model.predict_proba(X))
+    if hasattr(model, "decision_function"):
+        return np.asarray(model.decision_function(X))
+    return np.asarray(model.predict(X))
+
+
+def _roc_auc(y_true: np.ndarray, scores: np.ndarray, classes: np.ndarray) -> float:
+    """ROC AUC for binary (positive-class score) or multiclass (one-vs-rest macro).
+
+    Returns ``nan`` when AUC is undefined for this split (e.g. a class missing from the test fold, or
+    only 1-D scores available for a multiclass problem).
+    """
+    scores = np.asarray(scores)
+    try:
+        if len(classes) == 2:
+            s = scores[:, 1] if scores.ndim == 2 else scores
+            return float(roc_auc_score(y_true, s))
+        if scores.ndim == 2 and scores.shape[1] == len(classes):
+            return float(
+                roc_auc_score(y_true, scores, multi_class="ovr", average="macro", labels=classes)
+            )
+        return float("nan")
+    except ValueError:
+        return float("nan")
 
 
 @dataclass(frozen=True)
@@ -53,8 +104,8 @@ class DatasetSpec:
     note: str = ""
 
 
-# 10 small, non-linear classification datasets (all <= 1000 rows). data_id / row counts verified
-# against OpenML via fetch_openml.
+# 50 small, non-linear classification datasets (all <= 1000 rows). data_id / row counts verified
+# against OpenML (data/qualities + data/{id} metadata endpoints).
 CLASSIFICATION_DATASETS: list[DatasetSpec] = [
     DatasetSpec("tic-tac-toe", 50, "classification", 958, "XOR-like win patterns, pure interaction"),
     DatasetSpec("monks-problems-2", 334, "classification", 601, "synthetic XOR / parity target"),
@@ -66,6 +117,47 @@ CLASSIFICATION_DATASETS: list[DatasetSpec] = [
     DatasetSpec("ilpd", 1480, "classification", 583, "Indian liver patient, non-linear medical"),
     DatasetSpec("balance-scale", 11, "classification", 625, "target is a product (distance x weight)"),
     DatasetSpec("blood-transfusion", 1464, "classification", 748, "non-linear recency / frequency"),
+    # --- 40 additional small classification datasets ---
+    DatasetSpec("heart-statlog", 53, "classification", 270, "Statlog heart disease, non-linear medical"),
+    DatasetSpec("glass", 41, "classification", 214, "6-class glass type from oxide composition"),
+    DatasetSpec("wine", 187, "classification", 178, "3-class cultivars, multiplicative chem interactions"),
+    DatasetSpec("zoo", 62, "classification", 101, "7-class animal taxonomy from binary traits"),
+    DatasetSpec("hepatitis", 55, "classification", 155, "survival prediction, non-linear medical"),
+    DatasetSpec("lymph", 10, "classification", 148, "4-class lymphography, non-linear"),
+    DatasetSpec("tae", 48, "classification", 151, "3-class teaching-assistant evaluation"),
+    DatasetSpec("haberman", 43, "classification", 306, "breast-cancer survival, non-linear"),
+    DatasetSpec("vote", 56, "classification", 435, "congressional votes, interaction-heavy"),
+    DatasetSpec("monks-problems-1", 333, "classification", 556, "synthetic logical-rule target"),
+    DatasetSpec("monks-problems-3", 335, "classification", 554, "synthetic logical rule with noise"),
+    DatasetSpec("planning-relax", 1490, "classification", 182, "EEG planning vs relax, non-linear signal"),
+    DatasetSpec("credit-approval", 29, "classification", 690, "credit approval, mixed-type non-linear"),
+    DatasetSpec("breast-w", 15, "classification", 699, "Wisconsin breast cancer, non-linear medical"),
+    DatasetSpec("breast-cancer", 13, "classification", 286, "recurrence, categorical interactions"),
+    DatasetSpec("credit-g", 31, "classification", 1000, "German credit risk, non-linear"),
+    DatasetSpec("ecoli", 39, "classification", 336, "8-class protein localisation, non-linear"),
+    DatasetSpec("flags", 285, "classification", 194, "8-class religion from flag features"),
+    DatasetSpec("cleveland", 786, "classification", 303, "heart disease, non-linear medical"),
+    DatasetSpec("colic", 27, "classification", 368, "horse colic surgery, non-linear w/ missing data"),
+    DatasetSpec("biomed", 481, "classification", 209, "biomedical screening, non-linear"),
+    DatasetSpec("analcatdata_authorship", 458, "classification", 841, "4-class authorship from word freqs"),
+    DatasetSpec("analcatdata_lawsuit", 450, "classification", 264, "imbalanced layoff classification"),
+    DatasetSpec("climate-crashes", 1467, "classification", 540, "rare simulation crashes, non-linear"),
+    DatasetSpec("acute-inflammations", 1455, "classification", 120, "rule-based diagnosis, logical interactions"),
+    DatasetSpec("breast-tissue", 1465, "classification", 106, "6-class impedance tissue geometry"),
+    DatasetSpec("fertility", 1473, "classification", 100, "fertility diagnosis, non-linear medical"),
+    DatasetSpec("corral", 40669, "classification", 160, "synthetic correlated/irrelevant feats (XOR core)"),
+    DatasetSpec("australian", 40981, "classification", 690, "Australian credit, mixed-type non-linear"),
+    DatasetSpec("conference_attendance", 41538, "classification", 246, "attendance prediction, interactions"),
+    DatasetSpec("autoUniv-au7-700", 1553, "classification", 700, "synthetic 3-class, non-linear"),
+    DatasetSpec("autoUniv-au6-400", 1551, "classification", 400, "synthetic 8-class, non-linear geometry"),
+    DatasetSpec("diabetes-risk", 46733, "classification", 520, "early diabetes symptoms, non-linear"),
+    DatasetSpec("ar1", 1059, "classification", 121, "software defect prediction, non-linear"),
+    DatasetSpec("ar4", 1061, "classification", 107, "software defect prediction, non-linear"),
+    DatasetSpec("backache", 463, "classification", 180, "backache risk factors, non-linear medical"),
+    DatasetSpec("datatrieve", 1075, "classification", 130, "software fault prediction, non-linear"),
+    DatasetSpec("profb", 470, "classification", 672, "pro-football outcomes, non-linear"),
+    DatasetSpec("kc2", 1063, "classification", 522, "NASA software defects, non-linear"),
+    DatasetSpec("megawatt1", 1442, "classification", 253, "software defect prediction, non-linear"),
 ]
 
 # 10 small, non-linear regression datasets (all <= 1000 rows).
@@ -152,7 +244,13 @@ class OpenMLBenchmark:
         X_df: pd.DataFrame = bunch.data
         y_raw: pd.Series = bunch.target
 
-        categorical = [c for c in X_df.columns if str(X_df[c].dtype) in ("category", "object", "bool")]
+        # Anything non-numeric (object / category / pandas string / bool) is one-hot encoded; the rest
+        # is numeric. Booleans are forced categorical so they are encoded rather than median-imputed.
+        categorical = [
+            c
+            for c in X_df.columns
+            if is_bool_dtype(X_df[c]) or not is_numeric_dtype(X_df[c])
+        ]
         numeric = [c for c in X_df.columns if c not in categorical]
 
         transformers = []
@@ -264,7 +362,9 @@ class OpenMLBenchmark:
                 pred = model.predict(X_te)
 
                 if ds.task == "classification":
-                    primary.append(accuracy_score(y_te, pred))
+                    classes = np.unique(ds.y)
+                    primary.append(accuracy_score(y_te, _to_class_labels(pred, classes)))
+                    secondary.append(_roc_auc(y_te, _class_scores(model, X_te), classes))
                 else:
                     primary.append(r2_score(y_te, pred))
                     secondary.append(np.sqrt(mean_squared_error(y_te, pred)))
@@ -276,6 +376,8 @@ class OpenMLBenchmark:
                     "n_rows": spec.n_rows,
                     "acc_mean": float(np.mean(primary)),
                     "acc_std": float(np.std(primary)),
+                    "auc_mean": float(np.nanmean(secondary)),
+                    "auc_std": float(np.nanstd(secondary)),
                 }
             else:
                 row = {
@@ -290,7 +392,8 @@ class OpenMLBenchmark:
             rows.append(row)
             if verbose:
                 metric = (
-                    f"acc={row['acc_mean']:.3f}+/-{row['acc_std']:.3f}"
+                    f"acc={row['acc_mean']:.3f}+/-{row['acc_std']:.3f} "
+                    f"auc={row['auc_mean']:.3f}+/-{row['auc_std']:.3f}"
                     if spec.task == "classification"
                     else f"r2={row['r2_mean']:.3f}+/-{row['r2_std']:.3f}"
                 )
@@ -302,7 +405,7 @@ class OpenMLBenchmark:
 def main() -> None:
     """Light demo: print the registry and load one classification dataset."""
     bench = OpenMLBenchmark()
-    print("Benchmark suite (20 datasets):")
+    print("Benchmark suite (60 datasets):")
     print(bench.list().to_string(index=False))
 
     ds = bench.load(CLASSIFICATION_DATASETS[0].name)
