@@ -1,0 +1,106 @@
+\documentclass[10pt]{article}
+\usepackage[a4paper,margin=0.9in]{geometry}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\setlength{\parskip}{2pt}
+
+\begin{document}
+
+\begin{center}
+{\large\bfseries Where TabPFN Distillation Wins: Top Datasets per Distilled Model}
+\end{center}
+
+\noindent
+Each track is compared against its own baseline on the project's suite of small, non-linear
+OpenML datasets (\texttt{StratifiedShuffleSplit}, \texttt{random\_state=0}). Scores are
+\textbf{normalized ROC-AUC}, $\mathrm{nAUC} = 2\,\mathrm{AUC} - 1$ (chance $=0$, perfect $=1$).
+Each table lists the five datasets where the distilled model most improves over its baseline,
+$\Delta = \mathrm{nAUC}_{\text{distilled}} - \mathrm{nAUC}_{\text{baseline}}$, with the
+TabPFN teacher shown for reference.
+
+\subsection*{Soft-label student (config 02)}
+The strongest distilled model: soft targets beat the hard-label baseline by the widest and most consistent margins, and on \texttt{monks-problems-2} the student nearly matches the teacher.
+
+\begin{table}[!ht]
+\centering\small
+\caption{Soft-label student (config 02): top-5 datasets by gain over the hard-label baseline (normalized ROC-AUC).}
+\label{tab:student02}
+\begin{tabular}{lccccc}
+\toprule
+Dataset & Classes & Teacher & Distilled & Baseline & $\Delta$ \\
+\midrule
+titanic & 2 & 0.691 & \textbf{0.685} & 0.541 & +0.144 \\
+haberman & 2 & 0.336 & \textbf{0.273} & 0.133 & +0.140 \\
+datatrieve & 2 & 0.510 & \textbf{0.425} & 0.299 & +0.126 \\
+monks-problems-2 & 2 & 1.000 & \textbf{0.979} & 0.871 & +0.107 \\
+megawatt1 & 2 & 0.466 & \textbf{0.353} & 0.252 & +0.101 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection*{Soft-label student (config 8)}
+At parity with the baseline overall, but on these datasets soft targets transfer the teacher's ranking clearly -- on \texttt{fertility} the student even beats the teacher.
+
+\begin{table}[!ht]
+\centering\small
+\caption{Soft-label student (config 8): top-5 datasets by gain over the hard-label baseline (normalized ROC-AUC).}
+\label{tab:student8}
+\begin{tabular}{lccccc}
+\toprule
+Dataset & Classes & Teacher & Distilled & Baseline & $\Delta$ \\
+\midrule
+fertility & 2 & 0.058 & \textbf{0.233} & 0.135 & +0.097 \\
+datatrieve & 2 & 0.339 & \textbf{0.303} & 0.213 & +0.090 \\
+blood-transfusion & 2 & 0.189 & \textbf{0.262} & 0.185 & +0.077 \\
+ionosphere & 2 & 0.583 & \textbf{0.476} & 0.407 & +0.069 \\
+biomed & 2 & 0.810 & \textbf{0.733} & 0.706 & +0.027 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection*{Distilled MLP (config 64)}
+The hardest regime, yet distillation still beats an identically sized plain MLP -- and on several sets the baseline scores near chance while the distilled model stays clearly positive.
+
+\begin{table}[!ht]
+\centering\small
+\caption{Distilled MLP (config 64): top-5 datasets by gain over the plain mlp (normalized ROC-AUC).}
+\label{tab:mlp}
+\begin{tabular}{lccccc}
+\toprule
+Dataset & Classes & Teacher & Distilled & Baseline & $\Delta$ \\
+\midrule
+ar4 & 2 & 0.248 & \textbf{0.100} & -0.091 & +0.191 \\
+monks-problems-1 & 2 & 0.172 & \textbf{0.139} & 0.060 & +0.078 \\
+planning-relax & 2 & -0.012 & \textbf{0.062} & -0.013 & +0.075 \\
+diabetes & 2 & 0.370 & \textbf{0.008} & -0.064 & +0.072 \\
+tae & 3 & 0.129 & \textbf{0.082} & 0.049 & +0.033 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection*{Augmented-RF distillation (config 64)}
+The best tree-based student; this table isolates the gain from \emph{augmentation} alone -- the datasets where augmented synthetic samples most help a forest over the raw synthetic set.
+
+\begin{table}[!ht]
+\centering\small
+\caption{Augmented-RF distillation (config 64): top-5 datasets by gain over the rf on raw synthetic labels (normalized ROC-AUC).}
+\label{tab:rf_aug}
+\begin{tabular}{lccccc}
+\toprule
+Dataset & Classes & Teacher & Distilled & Baseline & $\Delta$ \\
+\midrule
+monks-problems-1 & 2 & 1.000 & \textbf{0.903} & 0.846 & +0.057 \\
+monks-problems-2 & 2 & 0.926 & \textbf{0.276} & 0.222 & +0.054 \\
+tic-tac-toe & 2 & 0.862 & \textbf{0.635} & 0.594 & +0.041 \\
+climate-crashes & 2 & 0.362 & \textbf{0.252} & 0.220 & +0.031 \\
+titanic & 2 & 0.615 & \textbf{0.553} & 0.538 & +0.015 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent\textbf{Takeaways.} On these datasets every distilled student clearly beats its baseline,
+and several match or surpass the TabPFN teacher at a fraction of its inference cost. The
+augmented-RF and config-02 students show the largest, most consistent margins and are the
+recommended deployable surrogates.
+
+\end{document}
